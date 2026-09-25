@@ -29,7 +29,8 @@ app = FastAPI(title="Load Shedding & Power Outage Management System")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "*"
+        "https://bidyut-bondhu.netlify.app",
+        "https://bidyut-bondhu.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
