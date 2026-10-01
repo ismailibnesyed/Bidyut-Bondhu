@@ -9,7 +9,7 @@ const AdminProtected = ({ children }) => {
     return <Navigate to="/login" />;
   }
 
-  if (authUser.role !== "librarian") {
+  if (authUser.role !== "admin") {
     return <Navigate to="/" />;
   }
 

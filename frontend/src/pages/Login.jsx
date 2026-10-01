@@ -11,7 +11,16 @@ import { AuthContext } from "../context/AuthProvider.jsx";
 const Login = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const { setAuthUser } = useContext(AuthContext);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotValues, setForgotValues] = useState({
+    username: "",
+    email: "",
+    phone: "",
+    new_password: "",
+    confirm_password: "",
+  });
+  const [resetting, setResetting] = useState(false);
+  const { setAuthUser, setAccessToken } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const getMessage = (data, fallback) => {
@@ -45,11 +54,13 @@ const Login = () => {
 
       const accessToken = data?.access_token;
 
-      if (!accessToken) {
+      if (!accessToken || !data?.refresh_token) {
         throw new Error("Login token not found.");
       }
 
       localStorage.setItem("lm_token", accessToken);
+      localStorage.setItem("lm_refresh_token", data.refresh_token);
+      setAccessToken(accessToken);
 
       const userRes = await fetch(`${baseUrl}/users/me`, {
         headers: {
@@ -75,6 +86,44 @@ const Login = () => {
     } catch (error) {
       toast.error(error.message);
     }
+  };
+
+  const handleForgotPassword = async (event) => {
+    event.preventDefault();
+    if (forgotValues.new_password !== forgotValues.confirm_password) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const response = await fetch(`${baseUrl}/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: forgotValues.username,
+          email: forgotValues.email,
+          phone: forgotValues.phone,
+          new_password: forgotValues.new_password,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(getMessage(data, "Password reset failed. Please try again."));
+      }
+      toast.success(data.message || "Password reset successfully.");
+      setShowForgotPassword(false);
+      setPassword("");
+    } catch (error) {
+      toast.error(error.message || "Something went wrong.");
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleForgotChange = (event) => {
+    const { name, value } = event.target;
+    setForgotValues((previous) => ({ ...previous, [name]: value }));
   };
 
   return (
@@ -103,6 +152,49 @@ const Login = () => {
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            {showForgotPassword ? (
+              <form onSubmit={handleForgotPassword}>
+                <h3 className="text-xl font-bold text-slate-900">Reset password</h3>
+                <p className="my-3 text-sm text-slate-500">
+                  Enter the username, email, and phone number on your account.
+                </p>
+                {[
+                  ["Username", "username", "text"],
+                  ["Email", "email", "email"],
+                  ["Phone number", "phone", "tel"],
+                  ["New password", "new_password", "password"],
+                  ["Confirm new password", "confirm_password", "password"],
+                ].map(([label, name, type]) => (
+                  <label key={name} className="mb-4 block text-sm font-semibold text-slate-700">
+                    <span className="mb-2 block">{label}</span>
+                    <input
+                      name={name}
+                      type={type}
+                      value={forgotValues[name]}
+                      onChange={handleForgotChange}
+                      required
+                      minLength={type === "password" ? 6 : undefined}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 font-normal"
+                    />
+                  </label>
+                ))}
+                <button
+                  type="submit"
+                  disabled={resetting}
+                  className="flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {resetting ? "Resetting..." : "Reset password"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPassword(false)}
+                  className="mt-4 w-full text-sm font-semibold text-blue-600"
+                >
+                  Back to sign in
+                </button>
+              </form>
+            ) : (
+              <>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
               Username
             </label>
@@ -127,6 +219,12 @@ const Login = () => {
               placeholder="Enter your password"
             />
 
+            <div className="mt-2 text-right text-sm">
+              <button type="button" onClick={() => setShowForgotPassword(true)} className="font-semibold text-blue-600">
+                Forgot password?
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={handleLogin}
@@ -142,6 +240,8 @@ const Login = () => {
                 Create an account
               </Link>
             </p>
+              </>
+            )}
           </div>
         </div>
       </AuthLayout>

@@ -1,6 +1,10 @@
 import { baseUrl } from "../services/Base.jsx";
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import toast from "react-hot-toast";
+import ListingPagination from "../components/dashboard/ListingPagination.jsx";
+import useListingPagination from "../components/dashboard/useListingPagination.js";
+import ConfirmDialog from "../components/dashboard/ConfirmDialog.jsx";
 const Areas = () => {
   const requestPath = "/areas";
   const [requestData, setRequestData] = useState(null);
@@ -48,7 +52,46 @@ const Areas = () => {
     reload: reloadRequest
   };
   const [search, setSearch] = useState("");
-  const areas = (request.data || []).filter(item => [item.area_name, item.district, item.postal_code].join(" ").toLowerCase().includes(search.toLowerCase()));
+  const [district, setDistrict] = useState("");
+  const [sort, setSort] = useState("name");
+  const [areaToDelete, setAreaToDelete] = useState(null);
+  const [deletingArea, setDeletingArea] = useState(false);
+  const areas = (request.data || [])
+    .filter(item =>
+      (!district || item.district === district) &&
+      [item.area_name, item.district, item.postal_code, item.id]
+        .join(" ")
+        .toLowerCase()
+        .includes(search.toLowerCase())
+    )
+    .sort((a, b) => sort === "district"
+      ? a.district.localeCompare(b.district) || a.area_name.localeCompare(b.area_name)
+      : sort === "postal"
+      ? a.postal_code.localeCompare(b.postal_code)
+      : a.area_name.localeCompare(b.area_name));
+  const listing = useListingPagination(areas);
+  const districts = [...new Set((request.data || []).map(item => item.district))].sort();
+
+  async function handleDelete(area) {
+    setDeletingArea(true);
+    try {
+      const token = localStorage.getItem("lm_token");
+      const response = await fetch(`${baseUrl}/admin/delete_area/${encodeURIComponent(area.postal_code)}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) window.dispatchEvent(new Event("auth-expired"));
+      if (!response.ok) throw new Error(data.detail || "Could not delete area.");
+      toast.success(data.message || "Area deleted successfully.");
+      setAreaToDelete(null);
+      reloadRequest();
+    } catch (error) {
+      toast.error(error.message || "Could not delete area.");
+    } finally {
+      setDeletingArea(false);
+    }
+  }
   return <>
       <PageHeader title="Manage Areas" description="Keep your service areas organised and up to date." />
 
@@ -62,9 +105,26 @@ const Areas = () => {
 
         <Field label="Search areas" value={search} onChange={event => setSearch(event.target.value)} placeholder="Area name, district or postal code" />
 
+        <div className="pc-filters">
+          <Field label="District">
+            <select value={district} onChange={event => setDistrict(event.target.value)}>
+              <option value="">All districts</option>
+              {districts.map(item => <option key={item}>{item}</option>)}
+            </select>
+          </Field>
+          <Field label="Sort by">
+            <select value={sort} onChange={event => setSort(event.target.value)}>
+              <option value="name">Area name A-Z</option>
+              <option value="district">District A-Z</option>
+              <option value="postal">Postal code</option>
+            </select>
+          </Field>
+        </div>
+
         <RequestState {...request} />
 
-        {!request.loading && !request.error && (areas.length ? <div className="pc-table-wrap">
+        {!request.loading && !request.error && (listing.total ? <>
+          <div className="pc-table-wrap">
               <table className="pc-table">
                 <thead>
                   <tr>
@@ -75,7 +135,7 @@ const Areas = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {areas.map(area => <tr key={area.id}>
+                  {listing.items.map(area => <tr key={area.id}>
                       <td>{area.area_name}</td>
                       <td>{area.district}</td>
                       <td>{area.postal_code}</td>
@@ -83,14 +143,27 @@ const Areas = () => {
                         <Link to={`/admin/areas/${encodeURIComponent(area.postal_code)}/edit`}>
                           Edit area →
                         </Link>
+                        <button className="pc-text-button danger" onClick={() => setAreaToDelete(area)}>
+                          Delete
+                        </button>
                       </td>
                     </tr>)}
                 </tbody>
               </table>
-            </div> : <p className="pc-empty">
+            </div>
+            <ListingPagination listing={listing} />
+          </> : <p className="pc-empty">
               No areas found. Create an area to get started.
             </p>)}
       </section>
+        <ConfirmDialog
+          open={Boolean(areaToDelete)}
+          title="Delete area?"
+          message={areaToDelete ? `${areaToDelete.area_name} will be removed if no records use it.` : ""}
+          loading={deletingArea}
+          onCancel={() => setAreaToDelete(null)}
+          onConfirm={() => handleDelete(areaToDelete)}
+        />
     </>;
 };
 function PageHeader({

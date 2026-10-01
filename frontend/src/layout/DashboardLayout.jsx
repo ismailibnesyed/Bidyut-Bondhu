@@ -1,5 +1,5 @@
 ﻿import { useContext, useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   FaBars, FaBolt, FaHouse, FaCalendarDays, FaClipboardList,
   FaLocationDot, FaHeadset, FaUser, FaGear, FaUsers, FaWrench,
@@ -9,6 +9,7 @@ import { AuthContext } from "../context/AuthProvider.jsx";
 
 const DashboardLayout = () => {
   const { authUser, logout } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
 
@@ -35,6 +36,8 @@ const DashboardLayout = () => {
 
   const handleSearch = (event) => {
     event.preventDefault();
+    const query = searchText.trim();
+    navigate(query ? `/outage-info?q=${encodeURIComponent(query)}` : "/outage-info");
   };
 
   return (
@@ -132,12 +135,12 @@ const DashboardLayout = () => {
           <form className="pc-search" onSubmit={handleSearch}>
             <FaMagnifyingGlass />
             <input
-              aria-label="Search schedules by area or postal code"
+              aria-label="Search schedules by area, postal code or reason"
               placeholder="Search area, postal code or schedule..."
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
             />
-            <button type="submit" disabled className="cursor-not-allowed opacity-50">Search</button>
+            <button type="submit">Search</button>
           </form>
 
           <Link className="pc-account cursor-pointer" to="/profile">

@@ -51,9 +51,8 @@ const Help = () => {
         <details>
           <summary>I forgot my password. What should I do?</summary>
           <p>
-            Contact your system administrator. Self-service password recovery is
-            not available yet. If you can still sign in, change your password from
-            Profile.
+            Open <Link to="/login">Sign in</Link> and choose Forgot password.
+            If you can still sign in, you can also change it from Profile.
           </p>
         </details>
 

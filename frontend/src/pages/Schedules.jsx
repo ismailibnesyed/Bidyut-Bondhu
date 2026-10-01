@@ -4,6 +4,9 @@ import toast from "react-hot-toast";
 
 import { baseUrl } from "../services/Base.jsx";
 import ScheduleTable from "../components/dashboard/ScheduleTable.jsx";
+import ListingPagination from "../components/dashboard/ListingPagination.jsx";
+import useListingPagination from "../components/dashboard/useListingPagination.js";
+import ConfirmDialog from "../components/dashboard/ConfirmDialog.jsx";
 import { AuthContext } from "../context/AuthProvider.jsx";
 
 // ==========================================
@@ -117,16 +120,24 @@ const Schedules = () => {
   const [district, setDistrict] = useState("");
   const [postal, setPostal] = useState("");
   const [month, setMonth] = useState("");
+  const [status, setStatus] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [sort, setSort] = useState("oldest");
 
   const [filters, setFilters] = useState({
     district: "",
     postal: "",
     month: "",
+    status: "",
+    fromDate: "",
+    toDate: "",
   });
 
   // Admin Form States
   const [editing, setEditing] = useState(null);
+  const [scheduleToDelete, setScheduleToDelete] = useState(null);
+  const [deletingSchedule, setDeletingSchedule] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -139,8 +150,11 @@ const Schedules = () => {
     .filter((item) => {
       const area = areaList.find((val) => val.postal_code === item.postal_code);
       const searchContent = [
+        item.id,
         item.postal_code,
         item.reason,
+        item.status,
+        item.start_time,
         area?.area_name,
         area?.district,
       ]
@@ -151,14 +165,24 @@ const Schedules = () => {
         (!filters.postal || item.postal_code === filters.postal) &&
         (!filters.district || area?.district === filters.district) &&
         (!filters.month || localTime(item.start_time).startsWith(filters.month)) &&
+        (!filters.status || item.status === filters.status) &&
+        (!filters.fromDate || localTime(item.start_time).slice(0, 10) >= filters.fromDate) &&
+        (!filters.toDate || localTime(item.start_time).slice(0, 10) <= filters.toDate) &&
         (!query || searchContent.includes(query))
       );
     })
-    .sort((a, b) =>
-      sort === "oldest"
+    .sort((a, b) => {
+      if (sort === "area") {
+        const areaA = areaList.find((item) => item.postal_code === a.postal_code)?.area_name || "";
+        const areaB = areaList.find((item) => item.postal_code === b.postal_code)?.area_name || "";
+        return areaA.localeCompare(areaB);
+      }
+      if (sort === "reason") return (a.reason || "").localeCompare(b.reason || "");
+      return sort === "oldest"
         ? asDate(a.start_time) - asDate(b.start_time)
-        : asDate(b.start_time) - asDate(a.start_time)
-    );
+        : asDate(b.start_time) - asDate(a.start_time);
+    });
+  const scheduleListing = useListingPagination(filteredSchedules);
 
   const upcoming = filteredSchedules.filter(
     (item) => item.status === "Scheduled" && asDate(item.start_time) > new Date()
@@ -184,6 +208,27 @@ const Schedules = () => {
     setFormError("");
 
     document.getElementById("schedule-form")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function handleDelete(item) {
+    setDeletingSchedule(true);
+    try {
+      const token = localStorage.getItem("lm_token");
+      const response = await fetch(`${baseUrl}/admin/delete_loadshedding/${item.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) window.dispatchEvent(new Event("auth-expired"));
+      if (!response.ok) throw new Error(data.detail || "Could not delete schedule.");
+      toast.success(data.message || "Schedule deleted successfully.");
+      setScheduleToDelete(null);
+      schedules.reload();
+    } catch (error) {
+      toast.error(error.message || "Could not delete schedule.");
+    } finally {
+      setDeletingSchedule(false);
+    }
   }
 
   function handleChange(event) {
@@ -261,7 +306,7 @@ const Schedules = () => {
         className="pc-card pc-filters"
         onSubmit={(e) => {
           e.preventDefault();
-          setFilters({ district, postal, month });
+          setFilters({ district, postal, month, status, fromDate, toDate });
         }}
       >
         <Field label="District">
@@ -299,6 +344,23 @@ const Schedules = () => {
           onChange={(e) => setMonth(e.target.value)}
         />
 
+        <Field label="Status">
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {["Scheduled", "Running", "Completed", "Cancelled"].map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="From date">
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        </Field>
+
+        <Field label="To date">
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        </Field>
+
         <Button type="submit">Search</Button>
 
         <Button
@@ -308,7 +370,10 @@ const Schedules = () => {
             setDistrict("");
             setPostal("");
             setMonth("");
-            setFilters({ district: "", postal: "", month: "" });
+            setStatus("");
+            setFromDate("");
+            setToDate("");
+            setFilters({ district: "", postal: "", month: "", status: "", fromDate: "", toDate: "" });
             setParams({});
           }}
         >
@@ -355,16 +420,22 @@ const Schedules = () => {
             >
               <option value="oldest">Earliest first</option>
               <option value="newest">Newest first</option>
+              <option value="area">Area A-Z</option>
+              <option value="reason">Reason A-Z</option>
             </select>
           </div>
 
           <RequestState {...schedules} />
 
           {!schedules.loading && !schedules.error && (
-            <ScheduleTable
-              schedules={filteredSchedules}
-              onEdit={isAdmin ? handleEdit : undefined}
-            />
+            <>
+              <ScheduleTable
+                schedules={scheduleListing.items}
+                onEdit={isAdmin ? handleEdit : undefined}
+                onDelete={isAdmin ? setScheduleToDelete : undefined}
+              />
+              <ListingPagination listing={scheduleListing} />
+            </>
           )}
         </section>
 
@@ -473,6 +544,14 @@ const Schedules = () => {
           </div>
         </form>
       )}
+      <ConfirmDialog
+        open={Boolean(scheduleToDelete)}
+        title="Delete schedule?"
+        message={scheduleToDelete ? `The schedule for ${scheduleToDelete.postal_code} will be permanently deleted.` : ""}
+        loading={deletingSchedule}
+        onCancel={() => setScheduleToDelete(null)}
+        onConfirm={() => handleDelete(scheduleToDelete)}
+      />
     </>
   );
 };

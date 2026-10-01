@@ -1,15 +1,15 @@
 from datetime import timezone
 from fastapi import APIRouter, HTTPException
-from dependencies import admin_dependency, db_dependency
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy.exc import IntegrityError
+from dependencies import db_dependency, user_dependency
 from models import Area, Complaint, LoadShedding, User
 from schemas import (
     AreaCreate,
-    AreaResponse,
     AreaUpdate,
-    ComplaintResponse,
     LoadSheddingCreate,
-    LoadSheddingResponse,
     LoadSheddingUpdate,
+    UserResponse,
 )
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -20,11 +20,14 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 # =====================================
 
 
-@router.get("/complaints", response_model=list[ComplaintResponse])
+@router.get("/complaints")
 def get_all_complaints(
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     complaints = db.query(Complaint).all()
     return complaints
 
@@ -34,14 +37,15 @@ def get_all_complaints(
 # =====================================
 
 
-@router.get(
-    "/complaints/{postal_code}", response_model=list[ComplaintResponse]
-)
+@router.get("/complaints/{postal_code}")
 def get_area_complaints(
     postal_code: str,
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     complaints = (
         db.query(Complaint)
         .filter(Complaint.postal_code == postal_code)
@@ -51,19 +55,40 @@ def get_area_complaints(
     return complaints
 
 
+@router.delete("/complaints/{complaint_id}")
+def delete_complaint(
+    complaint_id: int,
+    current_user: user_dependency,
+    db: db_dependency,
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if complaint is None:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    db.delete(complaint)
+    db.commit()
+    return {"message": "Complaint deleted successfully."}
+
+
 # =====================================
 # View All Technicians
 # =====================================
 
 
-@router.get("/technicians")
+@router.get("/technicians", response_model=list[UserResponse])
 def get_all_technicians(
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     technicians = db.query(User).filter(User.role == "technician").all()
 
-    return technicians
+    return jsonable_encoder(technicians)
 
 
 # =====================================
@@ -71,12 +96,15 @@ def get_all_technicians(
 # =====================================
 
 
-@router.post("/create_area", response_model=AreaResponse)
+@router.post("/create_area")
 def create_area(
     area_data: AreaCreate,
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     existing_area = (
         db.query(Area)
         .filter(Area.postal_code == area_data.postal_code)
@@ -106,26 +134,27 @@ def create_area(
 # =====================================
 
 
-@router.put("/update_area/{postal_code}", response_model=AreaResponse)
+@router.put("/update_area/{postal_code}")
 def update_area(
     postal_code: str,
     area_data: AreaUpdate,
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     area = db.query(Area).filter(Area.postal_code == postal_code).first()
 
     if area is None:
         raise HTTPException(status_code=404, detail="Area not found")
 
-    if area_data.area_name:
-        area.area_name = area_data.area_name
-
-    if area_data.district:
-        area.district = area_data.district
-
-    if area_data.postal_code and area_data.postal_code != postal_code:
+    update_data = area_data.model_dump(exclude_unset=True)
+    if update_data.get("postal_code") and update_data["postal_code"] != postal_code:
         raise HTTPException(400, "Postal codes cannot be changed because other records use them.")
+
+    for key, value in update_data.items():
+        setattr(area, key, value)
 
     db.commit()
     db.refresh(area)
@@ -133,19 +162,45 @@ def update_area(
     return area
 
 
+@router.delete("/delete_area/{postal_code}")
+def delete_area(
+    postal_code: str,
+    current_user: user_dependency,
+    db: db_dependency,
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    area = db.query(Area).filter(Area.postal_code == postal_code).first()
+    if area is None:
+        raise HTTPException(status_code=404, detail="Area not found")
+
+    db.delete(area)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Area is in use and cannot be deleted.",
+        )
+    return {"message": "Area deleted successfully."}
+
+
 # =====================================
 # Create Load Shedding Schedule
 # =====================================
 
 
-@router.post(
-    "/create_loadshedding", response_model=LoadSheddingResponse
-)
+@router.post("/create_loadshedding")
 def create_loadshedding(
     data: LoadSheddingCreate,
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     area = db.query(Area).filter(Area.postal_code == data.postal_code).first()
 
     if area is None:
@@ -164,7 +219,7 @@ def create_loadshedding(
         end_time=end,
         status=data.status,
         reason=data.reason,
-        created_by=current_user.id,
+        created_by=current_user["id"],
     )
 
     db.add(new_schedule)
@@ -179,15 +234,16 @@ def create_loadshedding(
 # =====================================
 
 
-@router.put(
-    "/update_loadshedding/{id}", response_model=LoadSheddingResponse
-)
+@router.put("/update_loadshedding/{id}")
 def update_loadshedding(
     id: int,
     data: LoadSheddingUpdate,
-    current_user: admin_dependency,
+    current_user: user_dependency,
     db: db_dependency,
 ):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     schedule = db.query(LoadShedding).filter(LoadShedding.id == id).first()
 
     if schedule is None:
@@ -195,31 +251,43 @@ def update_loadshedding(
             status_code=404, detail="Schedule not found"
         )
 
-    start = data.start_time or schedule.start_time
-    end = data.end_time or schedule.end_time
+    update_data = data.model_dump(exclude_unset=True)
+    start = update_data.get("start_time", schedule.start_time)
+    end = update_data.get("end_time", schedule.end_time)
     start = start.astimezone(timezone.utc).replace(tzinfo=None) if start.tzinfo else start
     end = end.astimezone(timezone.utc).replace(tzinfo=None) if end.tzinfo else end
     if end <= start:
         raise HTTPException(400, "End time must be after start time.")
-    if data.postal_code and not db.query(Area).filter_by(postal_code=data.postal_code).first():
+    if update_data.get("postal_code") and not db.query(Area).filter_by(postal_code=update_data["postal_code"]).first():
         raise HTTPException(400, "Area does not exist.")
 
-    if data.postal_code:
-        schedule.postal_code = data.postal_code
+    if "start_time" in update_data:
+        update_data["start_time"] = start
+    if "end_time" in update_data:
+        update_data["end_time"] = end
 
-    if data.start_time:
-        schedule.start_time = start
-
-    if data.end_time:
-        schedule.end_time = end
-
-    if data.reason:
-        schedule.reason = data.reason
-
-    if data.status:
-        schedule.status = data.status
+    for key, value in update_data.items():
+        setattr(schedule, key, value)
 
     db.commit()
     db.refresh(schedule)
 
     return schedule
+
+
+@router.delete("/delete_loadshedding/{id}")
+def delete_loadshedding(
+    id: int,
+    current_user: user_dependency,
+    db: db_dependency,
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    schedule = db.query(LoadShedding).filter(LoadShedding.id == id).first()
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    db.delete(schedule)
+    db.commit()
+    return {"message": "Schedule deleted successfully."}

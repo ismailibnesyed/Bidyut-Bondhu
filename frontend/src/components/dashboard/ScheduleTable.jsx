@@ -10,13 +10,15 @@ const getDate = value => {
 };
 const ScheduleTable = ({
   schedules = [],
-  onEdit
+  onEdit,
+  onDelete,
 }) => {
   // Show a message when there are no schedules.
   if (schedules.length === 0) {
     return <p className="pc-empty">No schedules found for this selection.</p>;
   }
   const canEdit = typeof onEdit === "function";
+  const canDelete = typeof onDelete === "function";
   return <div className="pc-table-wrap">
       <table className="pc-table">
         <thead>
@@ -28,7 +30,7 @@ const ScheduleTable = ({
             <th>Duration</th>
             <th>Status</th>
             <th>Reason</th>
-            {canEdit && <th>Action</th>}
+            {(canEdit || canDelete) && <th>Action</th>}
           </tr>
         </thead>
 
@@ -63,10 +65,13 @@ const ScheduleTable = ({
                 <td>{reason}</td>
 
                 {/* Show Edit only when the parent provides onEdit. */}
-                {canEdit && <td>
-                    <button className="pc-text-button" onClick={() => onEdit(schedule)}>
+                {(canEdit || canDelete) && <td>
+                    {canEdit && <button className="pc-text-button" onClick={() => onEdit(schedule)}>
                       Edit
-                    </button>
+                    </button>}
+                    {canDelete && <button className="pc-text-button danger" onClick={() => onDelete(schedule)}>
+                      Delete
+                    </button>}
                   </td>}
               </tr>;
         })}

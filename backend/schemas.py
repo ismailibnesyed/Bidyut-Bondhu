@@ -10,22 +10,22 @@ from pydantic import BaseModel, Field
 
 # User registration
 class UserCreate(BaseModel):
-    firstname: str
-    lastname: str
-    username: str
-    email: str
-    phone: str
+    firstname: str = Field(min_length=1)
+    lastname: str = Field(min_length=1)
+    username: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+    phone: str = Field(min_length=1)
     password: str = Field(min_length=6)
     postal_code: Optional[str] = None
 
 
 # Admin creates technician/admin
 class StaffCreate(BaseModel):
-    firstname: str
-    lastname: str
-    username: str
-    email: str
-    phone: str
+    firstname: str = Field(min_length=1)
+    lastname: str = Field(min_length=1)
+    username: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+    phone: str = Field(min_length=1)
     password: str = Field(min_length=6)
     role: Literal["admin", "technician"]
     postal_code: Optional[str] = None
@@ -33,21 +33,14 @@ class StaffCreate(BaseModel):
 
 # Update profile
 class UserUpdate(BaseModel):
-    firstname: Optional[str] = None
-    lastname: Optional[str] = None
-    username: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    postal_code: Optional[str] = None
+    firstname: Optional[str] = Field(default=None, min_length=1)
+    lastname: Optional[str] = Field(default=None, min_length=1)
+    username: Optional[str] = Field(default=None, min_length=1)
+    email: Optional[str] = Field(default=None, min_length=1)
+    phone: Optional[str] = Field(default=None, min_length=1)
+    postal_code: Optional[str] = Field(default=None, min_length=1)
 
 
-# Change password
-class PasswordUpdate(BaseModel):
-    old_password: str = Field(min_length=6)
-    new_password: str = Field(min_length=6)
-
-
-# User response
 class UserResponse(BaseModel):
     id: int
     firstname: str
@@ -60,8 +53,22 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+
+# Change password
+class PasswordUpdate(BaseModel):
+    old_password: str = Field(min_length=6)
+    new_password: str = Field(min_length=6)
+
+
+class ForgotPassword(BaseModel):
+    username: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+    phone: str = Field(min_length=1)
+    new_password: str = Field(min_length=6)
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=1)
 
 
 # =====================================
@@ -70,34 +77,21 @@ class UserResponse(BaseModel):
 
 
 class AreaCreate(BaseModel):
-    area_name: str
-    district: str
-    postal_code: str
-
+    area_name: str = Field(min_length=1)
+    district: str = Field(min_length=1)
+    postal_code: str = Field(min_length=1)
 
 class AreaUpdate(BaseModel):
-    area_name: Optional[str] = None
-    district: Optional[str] = None
-    postal_code: Optional[str] = None
-
-
-class AreaResponse(BaseModel):
-    id: int
-    area_name: str
-    district: str
-    postal_code: str
-
-    class Config:
-        from_attributes = True
-
+    area_name: Optional[str] = Field(default=None, min_length=1)
+    district: Optional[str] = Field(default=None, min_length=1)
+    postal_code: Optional[str] = Field(default=None, min_length=1)
 
 # =====================================
 # Load Shedding Schema
 # =====================================
 
-
 class LoadSheddingCreate(BaseModel):
-    postal_code: str
+    postal_code: str = Field(min_length=1)
     start_time: datetime
     end_time: datetime
     reason: Optional[str] = None
@@ -107,27 +101,13 @@ class LoadSheddingCreate(BaseModel):
 
 
 class LoadSheddingUpdate(BaseModel):
-    postal_code: Optional[str] = None
+    postal_code: Optional[str] = Field(default=None, min_length=1)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     reason: Optional[str] = None
     status: Optional[
         Literal["Scheduled", "Running", "Completed", "Cancelled"]
     ] = None
-
-
-class LoadSheddingResponse(BaseModel):
-    id: int
-    postal_code: str
-    start_time: datetime
-    end_time: datetime
-    status: str
-    reason: Optional[str]
-    created_by: Optional[int]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # =====================================
@@ -137,33 +117,19 @@ class LoadSheddingResponse(BaseModel):
 
 # User creates complaint
 class ComplaintCreate(BaseModel):
-    postal_code: str
-    title: str
-    description: str
+    postal_code: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
 
 
 # Admin assigns technician
 class ComplaintAssign(BaseModel):
-    assigned_to: int
+    assigned_to: int = Field(gt=0)
 
 
 # Technician updates status
 class ComplaintStatusUpdate(BaseModel):
     status: Literal["Pending", "Assigned", "Processing", "Solved"]
-
-
-class ComplaintResponse(BaseModel):
-    id: int
-    user_id: int
-    postal_code: str
-    title: str
-    description: str
-    status: str
-    assigned_to: Optional[int]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # =====================================
@@ -172,7 +138,7 @@ class ComplaintResponse(BaseModel):
 
 
 class OutageHistoryCreate(BaseModel):
-    postal_code: str
+    postal_code: str = Field(min_length=1)
     start_time: datetime
     end_time: Optional[datetime] = None
     reason: Optional[str] = None
@@ -182,15 +148,3 @@ class OutageHistoryUpdate(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     reason: Optional[str] = None
-
-
-class OutageHistoryResponse(BaseModel):
-    id: int
-    postal_code: str
-    start_time: datetime
-    end_time: Optional[datetime]
-    reason: Optional[str]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True

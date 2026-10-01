@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 from passlib.context import CryptContext
 
 from dependencies import ALGORITHM, SECRET_KEY, db_dependency
 from models import User
-from schemas import UserCreate, UserResponse
+from schemas import ForgotPassword, RefreshTokenRequest, UserCreate, UserResponse
 
 # =====================================
 # Router Configuration
@@ -20,6 +21,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 # =====================================
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+# A separate key prevents a refresh token from being used as an access token.
+REFRESH_SECRET_KEY = SECRET_KEY + "-refresh"
 
 # =====================================
 # Password Hash Configuration
@@ -45,6 +49,16 @@ def create_access_token(data: dict):
     token = jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
 
     return token
+
+
+def create_refresh_token(user: User):
+    token_data = {
+        "id": user.id,
+        "username": user.username,
+        "exp": datetime.now(timezone.utc)
+        + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    }
+    return jwt.encode(token_data, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
 
 
 # =====================================
@@ -97,7 +111,7 @@ def create_user(user_data: UserCreate, db: db_dependency):
     db.commit()
     db.refresh(new_user)
 
-    return new_user
+    return jsonable_encoder(new_user)
 
 
 # =====================================
@@ -134,4 +148,62 @@ def login(
         {"id": user.id, "username": user.username, "role": user.role}
     )
 
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": token,
+        "refresh_token": create_refresh_token(user),
+        "token_type": "bearer",
+    }
+
+
+@router.post("/refresh")
+def refresh_access_token(data: RefreshTokenRequest, db: db_dependency):
+    try:
+        payload = jwt.decode(
+            data.refresh_token,
+            REFRESH_SECRET_KEY,
+            algorithms=[ALGORITHM],
+        )
+        user_id = payload.get("id")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token.")
+
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid refresh token.")
+
+    return {
+        "access_token": create_access_token(
+            {"id": user.id, "username": user.username, "role": user.role}
+        ),
+        "refresh_token": create_refresh_token(user),
+        "token_type": "bearer",
+    }
+
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPassword, db: db_dependency):
+    if len(data.new_password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=400, detail="Password must be at most 72 bytes."
+        )
+
+    user = (
+        db.query(User)
+        .filter(
+            User.username == data.username,
+            User.email == data.email,
+            User.phone == data.phone,
+            User.is_active.is_(True),
+        )
+        .first()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=400, detail="Account details do not match."
+        )
+
+    user.password_hash = bcrypt_context.hash(data.new_password)
+    db.commit()
+
+    return {"message": "Password reset successfully. You can now log in."}

@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { baseUrl } from "../services/Base.jsx";
+import ListingPagination from "../components/dashboard/ListingPagination.jsx";
+import useListingPagination from "../components/dashboard/useListingPagination.js";
+import ConfirmDialog from "../components/dashboard/ConfirmDialog.jsx";
 
 /* ==========================================================================
    Helper Sub-Components
@@ -115,6 +118,13 @@ const Users = ({ techniciansOnly = false }) => {
   const [usersRefresh, setUsersRefresh] = useState(0);
 
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [activityFilter, setActivityFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [deletingUser, setDeletingUser] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -207,14 +217,52 @@ const Users = ({ techniciansOnly = false }) => {
     });
   }
 
-  const filtered = (users.data || []).filter(
-    (user) =>
-      (!techniciansOnly || user.role === "technician") &&
-      [user.firstname, user.lastname, user.username, user.email]
-        .join(" ")
-        .toLowerCase()
-        .includes(search.toLowerCase())
-  );
+  const filtered = (users.data || [])
+    .filter((user) => {
+      const createdDate = user.created_at
+        ? new Date(user.created_at).toISOString().slice(0, 10)
+        : "";
+      return (
+        (!techniciansOnly || user.role === "technician") &&
+        (!roleFilter || user.role === roleFilter) &&
+        (!activityFilter || String(user.is_active) === activityFilter) &&
+        (!startDate || createdDate >= startDate) &&
+        (!endDate || createdDate <= endDate) &&
+        [user.firstname, user.lastname, user.username, user.email, user.id]
+          .join(" ")
+          .toLowerCase()
+          .includes(search.toLowerCase())
+      );
+    })
+    .sort((a, b) =>
+      sort === "name"
+        ? `${a.firstname} ${a.lastname}`.localeCompare(`${b.firstname} ${b.lastname}`)
+        : sort === "oldest"
+        ? new Date(a.created_at) - new Date(b.created_at)
+        : new Date(b.created_at) - new Date(a.created_at)
+    );
+  const listing = useListingPagination(filtered);
+
+  async function handleDeleteUser(user) {
+    setDeletingUser(true);
+    try {
+      const token = localStorage.getItem("lm_token");
+      const response = await fetch(`${baseUrl}/admin/users/${user.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) window.dispatchEvent(new Event("auth-expired"));
+      if (!response.ok) throw new Error(data.detail || "Could not delete user.");
+      toast.success(data.message || "User deleted successfully.");
+      setUserToDelete(null);
+      users.reload();
+    } catch (failure) {
+      toast.error(failure.message || "Could not delete user.");
+    } finally {
+      setDeletingUser(false);
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -288,41 +336,82 @@ const Users = ({ techniciansOnly = false }) => {
           label="Search users"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
+          placeholder="Name, email or user ID"
         />
+
+        <div className="pc-filters">
+          <Field label="Role">
+            <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+              <option value="">All roles</option>
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+              <option value="technician">Technician</option>
+            </select>
+          </Field>
+          <Field label="Account status">
+            <select value={activityFilter} onChange={(event) => setActivityFilter(event.target.value)}>
+              <option value="">All accounts</option>
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </Field>
+          <Field label="From date">
+            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+          </Field>
+          <Field label="To date">
+            <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+          </Field>
+          <Field label="Sort by">
+            <select value={sort} onChange={(event) => setSort(event.target.value)}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name">Name A-Z</option>
+            </select>
+          </Field>
+        </div>
 
         <RequestState {...users} />
 
         {!users.loading &&
           !users.error &&
-          (filtered.length ? (
-            <div className="pc-table-wrap">
-              <table className="pc-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Username</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Phone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((user) => (
-                    <tr key={user.id}>
-                      <td>
-                        {user.firstname} {user.lastname}
-                      </td>
-                      <td>{user.username}</td>
-                      <td>{user.email}</td>
-                      <td>
-                        <StatusBadge status={user.role} />
-                      </td>
-                      <td>{user.phone}</td>
+          (listing.total ? (
+            <>
+              <div className="pc-table-wrap">
+                <table className="pc-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Username</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Phone</th>
+                      <th>Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {listing.items.map((user) => (
+                      <tr key={user.id}>
+                        <td>
+                          {user.firstname} {user.lastname}
+                        </td>
+                        <td>{user.username}</td>
+                        <td>{user.email}</td>
+                        <td>
+                          <StatusBadge status={user.role} />
+                        </td>
+                        <td>{user.phone}</td>
+                        <td>
+                          <button className="pc-text-button danger" onClick={() => setUserToDelete(user)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ListingPagination listing={listing} />
+            </>
           ) : (
             <p className="pc-empty">No accounts found.</p>
           ))}
@@ -426,6 +515,14 @@ const Users = ({ techniciansOnly = false }) => {
           </button>
         </div>
       </form>
+      <ConfirmDialog
+        open={Boolean(userToDelete)}
+        title="Delete account?"
+        message={userToDelete ? `${userToDelete.firstname} ${userToDelete.lastname} will be permanently deleted.` : ""}
+        loading={deletingUser}
+        onCancel={() => setUserToDelete(null)}
+        onConfirm={() => handleDeleteUser(userToDelete)}
+      />
     </>
   );
 };

@@ -4,6 +4,9 @@ import toast from "react-hot-toast";
 
 import { baseUrl } from "../services/Base.jsx";
 import { AuthContext } from "../context/AuthProvider.jsx";
+import ListingPagination from "../components/dashboard/ListingPagination.jsx";
+import useListingPagination from "../components/dashboard/useListingPagination.js";
+import ConfirmDialog from "../components/dashboard/ConfirmDialog.jsx";
 
 function ComplaintAction({ complaint, role, technicians, reload }) {
   const [saving, setSaving] = useState(false);
@@ -210,15 +213,61 @@ const Complaints = () => {
   const [params] = useSearchParams();
   const [search, setSearch] = useState(params.get("search") || "");
   const [status, setStatus] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [complaintToDelete, setComplaintToDelete] = useState(null);
+  const [deletingComplaint, setDeletingComplaint] = useState(false);
 
-  const filtered = requestData.filter(
-    (item) =>
-      (!status || item.status === status) &&
-      [item.title, item.description, item.postal_code, item.id]
-        .join(" ")
-        .toLowerCase()
-        .includes(search.toLowerCase())
-  );
+  const filtered = requestData
+    .filter((item) => {
+      const createdDate = new Date(item.created_at).toISOString().slice(0, 10);
+      return (
+        (!status || item.status === status) &&
+        (!postalCode || item.postal_code === postalCode) &&
+        (!startDate || createdDate >= startDate) &&
+        (!endDate || createdDate <= endDate) &&
+        [item.title, item.description, item.postal_code, item.id]
+          .join(" ")
+          .toLowerCase()
+          .includes(search.toLowerCase())
+      );
+    })
+    .sort((a, b) =>
+      sort === "title"
+        ? a.title.localeCompare(b.title)
+        : sort === "oldest"
+        ? new Date(a.created_at) - new Date(b.created_at)
+        : new Date(b.created_at) - new Date(a.created_at)
+    );
+  const listing = useListingPagination(filtered);
+  const postalCodes = [...new Set(requestData.map((item) => item.postal_code))].sort();
+
+  async function handleDeleteComplaint(complaint) {
+    setDeletingComplaint(true);
+    const path = role === "admin"
+      ? `/admin/complaints/${complaint.id}`
+      : `/users/me/complaints/${complaint.id}`;
+
+    try {
+      const token = localStorage.getItem("lm_token");
+      const response = await fetch(baseUrl + path, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) window.dispatchEvent(new Event("auth-expired"));
+      if (!response.ok) throw new Error(data.detail || "Could not delete complaint.");
+      toast.success(data.message || "Complaint deleted successfully.");
+      setComplaintToDelete(null);
+      reloadRequest();
+    } catch (error) {
+      toast.error(error.message || "Could not delete complaint.");
+    } finally {
+      setDeletingComplaint(false);
+    }
+  }
 
   return (
     <>
@@ -250,6 +299,31 @@ const Complaints = () => {
           </select>
         </Field>
 
+        <Field label="Area">
+          <select value={postalCode} onChange={(e) => setPostalCode(e.target.value)}>
+            <option value="">All areas</option>
+            {postalCodes.map((code) => (
+              <option key={code} value={code}>{code}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="From date">
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </Field>
+
+        <Field label="To date">
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </Field>
+
+        <Field label="Sort by">
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="title">Title A-Z</option>
+          </select>
+        </Field>
+
         {role === "user" && (
           <Link className="pc-button" to="/complaint/create">
             + Report Complaint
@@ -268,8 +342,9 @@ const Complaints = () => {
 
       {!requestLoading && !requestError && (
         <div className="pc-stack">
-          {filtered.length ? (
-            filtered.map((item) => (
+          {listing.total ? (
+            <>
+              {listing.items.map((item) => (
               <article className="pc-card" key={item.id}>
                 <div className="pc-card-heading">
                   <div>
@@ -287,6 +362,15 @@ const Complaints = () => {
                   {new Date(item.created_at).toLocaleString()}
                 </p>
 
+                {(role === "admin" || (role === "user" && item.status === "Pending")) && (
+                  <button
+                    className="pc-text-button danger"
+                    onClick={() => setComplaintToDelete(item)}
+                  >
+                    Delete complaint
+                  </button>
+                )}
+
                 {role !== "user" && (
                   <ComplaintAction
                     complaint={item}
@@ -298,7 +382,9 @@ const Complaints = () => {
                   />
                 )}
               </article>
-            ))
+              ))}
+              <ListingPagination listing={listing} />
+            </>
           ) : (
             <div className="pc-card pc-empty">
               No complaints match this selection.
@@ -306,6 +392,14 @@ const Complaints = () => {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(complaintToDelete)}
+        title="Delete complaint?"
+        message={complaintToDelete ? `Complaint #${complaintToDelete.id} will be deleted.` : ""}
+        loading={deletingComplaint}
+        onCancel={() => setComplaintToDelete(null)}
+        onConfirm={() => handleDeleteComplaint(complaintToDelete)}
+      />
     </>
   );
 };

@@ -27,7 +27,7 @@ const Navbar = () => {
   };
 
   return (
-    <div className="navbar bg-base-100 shadow-md px-16">
+    <div className="navbar sticky top-0 z-50 bg-base-100 shadow-md px-16">
       {/* Brand and mobile menu button */}
       <div className="navbar-start">
         <Link to="/" className="pc-brand">
